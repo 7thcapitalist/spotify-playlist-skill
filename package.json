@@ -1,0 +1,52 @@
+{
+  "name": "spotify-playlist-skill",
+  "version": "0.1.0",
+  "description": "Generate Spotify playlists from natural-language prompts with a local Cursor/OpenClaw skill and TypeScript CLI.",
+  "main": "dist/index.js",
+  "bin": {
+    "spotify-playlist-skill": "dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsx src/cli.ts",
+    "auth": "tsx src/cli.ts auth",
+    "generate": "tsx src/cli.ts generate",
+    "smoke": "tsx src/cli.ts smoke",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "check": "npm run lint && npm run typecheck && npm run test",
+    "start": "node dist/cli.js"
+  },
+  "keywords": [
+    "spotify",
+    "playlist",
+    "cursor",
+    "openclaw",
+    "skill",
+    "typescript"
+  ],
+  "author": "",
+  "license": "MIT",
+  "type": "commonjs",
+  "files": [
+    "dist",
+    "README.md",
+    ".env.example",
+    ".cursor/skills/spotify-playlist/SKILL.md"
+  ],
+  "dependencies": {
+    "dotenv": "^17.4.2",
+    "spotify-web-api-node": "^5.0.2"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^25.6.0",
+    "@types/spotify-web-api-node": "^5.0.11",
+    "eslint": "^10.2.0",
+    "tsx": "^4.21.0",
+    "typescript": "^6.0.2",
+    "typescript-eslint": "^8.58.2",
+    "vitest": "^4.1.4"
+  }
+}

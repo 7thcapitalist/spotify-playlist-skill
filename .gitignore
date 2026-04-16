@@ -1,0 +1,10 @@
+node_modules/
+dist/
+.env
+.env.*
+!.env.example
+.env.local
+.spotify-playlist-skill.tokens.json
+coverage/
+*.log
+.DS_Store
