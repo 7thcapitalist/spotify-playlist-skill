@@ -2,16 +2,6 @@
 
 Generate Spotify playlists from natural-language prompts with a local TypeScript CLI and a repo-local Cursor/OpenClaw skill.
 
-## Why This Project Matters
-
-Playlist creation is still manual for many event and mood-based use cases. This project focuses on a practical product workflow:
-
-- describe a playlist in plain language
-- resolve intended artists and constraints
-- generate a usable Spotify playlist in one command
-
-The goal is a reliable builder tool, not just a code demo.
-
 ## What It Does
 
 `spotify-playlist-skill` turns prompts like:
@@ -107,15 +97,6 @@ Run the smoke prompt:
 npm run smoke
 ```
 
-## Example Output
-
-```text
-Playlist: Pecuária 2026
-Tracks: 50
-Duration: 152.4 min
-URL: https://open.spotify.com/playlist/7xDYjsVNiaKQ7CWmTTQZWm
-```
-
 ## Cursor / OpenClaw Usage
 
 This repo also includes a local skill at `.cursor/skills/spotify-playlist/SKILL.md`.
@@ -146,19 +127,6 @@ The project keeps custom logic in the domain/application layers and pushes Spoti
 - `src/spotify/search.ts`: Spotify search and artist resolution helpers
 - `src/spotify/playlists.ts`: playlist creation and item insertion
 
-```mermaid
-flowchart LR
-  prompt[Prompt] --> parser[parsePrompt]
-  parser --> orchestrator[generatePlaylistFromPrompt]
-  orchestrator --> resolver[resolveRequestedArtists]
-  orchestrator --> search[searchTrackCandidates]
-  resolver --> artistCandidates[fetchArtistTrackCandidates]
-  search --> selector[selectTracks]
-  artistCandidates --> selector
-  selector --> createPlaylist[createPlaylistWithTracks]
-  createPlaylist --> spotify[(Spotify Web API)]
-```
-
 ## Quality Checks
 
 ```bash
@@ -180,14 +148,6 @@ If your client secret was exposed during development, rotate it in the Spotify D
 - “Likely live songs” is approximated through Spotify search and popularity signals, not official live setlists
 - The tool creates private playlists by default
 - Results depend on Spotify’s current catalog, market availability, and API behavior
-
-## Roadmap
-
-- Improve artist canonicalization and representation reporting
-- Add optional setlist-aware enrichment (external data source)
-- Add playlist sequencing modes (`warmup`, `peak-energy`, `cooldown`)
-- Add integration tests with mocked Spotify responses
-- Add release tags and changelog for reproducible versions
 
 ## Publishing
 
