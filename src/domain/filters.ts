@@ -27,21 +27,27 @@ export function uniqueStrings(values: string[]): string[] {
 }
 
 export function dedupeCandidates(candidates: TrackCandidate[]): TrackCandidate[] {
-  const seen = new Set<string>();
+  const seenUris = new Set<string>();
+  // Tracks often exist in Spotify's catalog multiple times (single release, album release,
+  // regional release, remaster, etc.) with different URIs but identical `name + artists`.
+  // Collapse those so the playlist doesn't get multiple copies of the same song.
+  const seenTrackKeys = new Set<string>();
   const result: TrackCandidate[] = [];
 
   for (const candidate of candidates) {
-    const compoundKey = [
-      candidate.uri,
-      normalizeText(candidate.name),
-      candidate.artistNames.map(normalizeText).join("|"),
-    ].join("::");
-
-    if (seen.has(compoundKey)) {
+    if (seenUris.has(candidate.uri)) {
       continue;
     }
 
-    seen.add(compoundKey);
+    const primaryArtist = normalizeText(candidate.artistNames[0] ?? "");
+    const trackKey = `${primaryArtist}::${normalizeText(candidate.name)}`;
+
+    if (seenTrackKeys.has(trackKey)) {
+      continue;
+    }
+
+    seenUris.add(candidate.uri);
+    seenTrackKeys.add(trackKey);
     result.push(candidate);
   }
 

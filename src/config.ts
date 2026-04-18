@@ -4,7 +4,8 @@ import path from "node:path";
 dotenv.config({
   path: path.resolve(process.cwd(), ".env"),
   quiet: true,
-  override: true,
+  // Allow process env (e.g. CI, one-off CLI) to override .env
+  override: false,
 });
 
 const DEFAULT_SCOPES = ["playlist-modify-private", "playlist-modify-public"];
@@ -17,6 +18,12 @@ export interface SpotifySkillConfig {
   spotifyDefaultMarket: string;
   oauthScopes: string[];
   authorizationTimeoutMs: number;
+  aiInterpretationEnabled: boolean;
+  aiProvider: "openai-compatible";
+  aiApiKey?: string;
+  aiBaseUrl: string;
+  aiModel: string;
+  aiTimeoutMs: number;
 }
 
 function requireEnv(name: string): string {
@@ -39,6 +46,10 @@ function requireEnv(name: string): string {
 
 export function getConfig(): SpotifySkillConfig {
   const tokenPath = process.env.SPOTIFY_TOKEN_PATH?.trim() || ".spotify-playlist-skill.tokens.json";
+  const aiApiKey = process.env.AI_API_KEY?.trim() || process.env.OPENAI_API_KEY?.trim();
+  const aiInterpretationEnabled =
+    (process.env.AI_INTERPRETATION_ENABLED?.trim().toLowerCase() ?? "auto") !== "false" &&
+    Boolean(aiApiKey);
 
   return {
     spotifyClientId: requireEnv("SPOTIFY_CLIENT_ID"),
@@ -48,5 +59,11 @@ export function getConfig(): SpotifySkillConfig {
     spotifyDefaultMarket: process.env.SPOTIFY_DEFAULT_MARKET?.trim() || "US",
     oauthScopes: DEFAULT_SCOPES,
     authorizationTimeoutMs: 120_000,
+    aiInterpretationEnabled,
+    aiProvider: "openai-compatible",
+    aiApiKey,
+    aiBaseUrl: process.env.AI_BASE_URL?.trim() || "https://api.openai.com/v1",
+    aiModel: process.env.AI_MODEL?.trim() || "gpt-4.1-mini",
+    aiTimeoutMs: Number(process.env.AI_TIMEOUT_MS?.trim() || "15000"),
   };
 }

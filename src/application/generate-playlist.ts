@@ -1,11 +1,23 @@
 import type { SpotifySkillConfig } from "../config";
-import { parsePrompt } from "../domain/parse-prompt";
+import { interpretPrompt } from "../ai/interpret-prompt";
+import {
+  relatedTrackHasRealArtist,
+  reviewAndRepairSelection,
+} from "../domain/review-selection";
 import { buildSearchQueries, selectTracks } from "../domain/select-tracks";
-import { uniqueStrings } from "../domain/filters";
+import {
+  dedupeCandidates,
+  normalizeText,
+  totalDurationMs,
+  uniqueStrings,
+} from "../domain/filters";
 import { createPlaylistWithTracks } from "../spotify/playlists";
 import {
   fetchArtistTrackCandidates,
+  fetchGenreSimilarArtistCandidates,
+  fetchRecommendationTrackCandidates,
   resolveRequestedArtists,
+  resolveSimilarArtists,
   searchTrackCandidates,
 } from "../spotify/search";
 import { getAuthorizedSpotifyClient } from "../spotify/auth";
@@ -25,7 +37,13 @@ function buildPlaylistName(spec: PromptSpec): string {
     return spec.playlistNameHint;
   }
 
-  const leadingTerms = uniqueStrings([...spec.styles, ...spec.activities, ...spec.genres])
+  const leadingTerms = uniqueStrings([
+    ...spec.artists,
+    ...spec.styles,
+    ...spec.activities,
+    ...spec.genres,
+    ...spec.languages,
+  ])
     .slice(0, 4)
     .map(toTitleCase);
 
@@ -44,30 +62,250 @@ function buildPlaylistDescription(spec: PromptSpec): string {
   return description.slice(0, 300);
 }
 
+function composeSelectionWithSimilarArtistShare(
+  spec: PromptSpec,
+  candidates: PlaylistGenerationResult["selectedTracks"],
+  alreadySelected: PlaylistGenerationResult["selectedTracks"],
+): PlaylistGenerationResult["selectedTracks"] {
+  if (
+    !spec.includeSimilarArtists ||
+    spec.artists.length === 0 ||
+    spec.requestedArtistTargetShare === undefined
+  ) {
+    return alreadySelected;
+  }
+
+  const requestedTargetCount = Math.max(
+    1,
+    Math.round(spec.targetTrackCount * spec.requestedArtistTargetShare),
+  );
+  const relatedTargetCount = Math.max(0, spec.targetTrackCount - requestedTargetCount);
+  const requestedCandidates = candidates.filter(
+    (candidate) => candidate.seedArtistKind !== "related",
+  );
+  const relatedCandidates = candidates.filter(
+    (candidate) => candidate.seedArtistKind === "related",
+  );
+
+  const requestedSelection = selectTracks(
+    {
+      ...spec,
+      targetTrackCount: requestedTargetCount,
+      includeSimilarArtists: false,
+      includeOnlyRequestedArtists: false,
+      requestedArtistTargetShare: undefined,
+    },
+    requestedCandidates,
+  ).tracks;
+
+  // When building the related pool we drop the `artists` constraint so related tracks
+  // aren't forced to match the primary artist list.
+  const relatedSelection = selectTracks(
+    {
+      ...spec,
+      artists: [],
+      targetTrackCount: relatedTargetCount,
+      strictArtistMatch: false,
+      includeOnlyRequestedArtists: false,
+      includeSimilarArtists: false,
+      requestedArtistTargetShare: undefined,
+    },
+    relatedCandidates,
+  ).tracks;
+
+  // Dedup across the two sub-pools to collapse any track that snuck into both.
+  return dedupeCandidates([...requestedSelection, ...relatedSelection]);
+}
+
+/** Cap on how many AI-proposed similar artists we actually query Spotify for. */
+const MAX_SIMILAR_ARTISTS_TO_RESOLVE = 8;
+
+/**
+ * Build a set of normalized genre tags that characterize the primary `artists` + user-supplied
+ * genres, used to gate resolved similar artists so ambiguous names ("Derek") don't get
+ * matched to unrelated English-language artists.
+ */
+function buildExpectedGenreSet(
+  primaryArtists: ReadonlyArray<{ genres: string[] }>,
+  userGenres: string[],
+): Set<string> {
+  const combined = [
+    ...primaryArtists.flatMap((artist) => artist.genres ?? []),
+    ...userGenres,
+  ]
+    .map((value) => normalizeText(value))
+    .filter(Boolean);
+
+  return new Set(combined);
+}
+
+/** Simple overlap check: at least one token from the expected set appears in the genres. */
+function artistMatchesExpectedScene(
+  genres: string[],
+  expected: Set<string>,
+): boolean {
+  if (expected.size === 0) {
+    return true;
+  }
+
+  const normalized = genres.map((value) => normalizeText(value)).filter(Boolean);
+
+  return normalized.some((genre) => {
+    for (const expectedGenre of expected) {
+      if (!expectedGenre) {
+        continue;
+      }
+
+      if (
+        genre === expectedGenre ||
+        genre.includes(expectedGenre) ||
+        expectedGenre.includes(genre)
+      ) {
+        return true;
+      }
+    }
+
+    return false;
+  });
+}
+
+/**
+ * Resolve AI-proposed similar artist names against the real Spotify catalog.
+ * These are kept as non-requested seeds so their tracks stay in the "related" bucket.
+ * We cap the list to avoid hammering Spotify with many parallel artist searches, and
+ * drop resolved matches whose Spotify genres don't overlap with the primary scene.
+ */
+async function resolveSimilarArtistNames(
+  spotifyApi: Awaited<ReturnType<typeof getAuthorizedSpotifyClient>>,
+  names: string[],
+  excludedArtistIds: Set<string>,
+  expectedGenres: Set<string>,
+): Promise<Awaited<ReturnType<typeof resolveRequestedArtists>>> {
+  if (names.length === 0) {
+    return [];
+  }
+
+  const limitedNames = names.slice(0, MAX_SIMILAR_ARTISTS_TO_RESOLVE);
+  const resolved = await resolveRequestedArtists(spotifyApi, limitedNames);
+
+  return resolved
+    .filter((artist) => !excludedArtistIds.has(artist.spotifyArtistId))
+    .filter((artist) => artistMatchesExpectedScene(artist.genres, expectedGenres))
+    .map((artist) => ({ ...artist, isRequested: false }));
+}
+
 export async function generatePlaylistFromPrompt(
   prompt: string,
   config: SpotifySkillConfig,
 ): Promise<PlaylistGenerationResult> {
-  const promptSpec = parsePrompt(prompt);
+  const promptSpec = await interpretPrompt(prompt, config);
   const queries = buildSearchQueries(promptSpec);
   const spotifyApi = await getAuthorizedSpotifyClient(config);
   const resolvedArtists =
     promptSpec.artists.length > 0
       ? await resolveRequestedArtists(spotifyApi, promptSpec.artists)
       : [];
-  const [artistCandidates, queryCandidates] = await Promise.all([
-    resolvedArtists.length > 0
-      ? fetchArtistTrackCandidates(spotifyApi, resolvedArtists, {
+  const requestedArtistIds = new Set(resolvedArtists.map((artist) => artist.spotifyArtistId));
+  // Prefer AI-provided similar artist names (Spotify's related-artists endpoint was
+  // deprecated in late 2024 and now returns 404). Fall back to the legacy related
+  // endpoint for backward compatibility when the AI didn't provide any.
+  const expectedGenres = buildExpectedGenreSet(resolvedArtists, promptSpec.genres);
+  const aiNamedSimilarArtists =
+    promptSpec.includeSimilarArtists && promptSpec.similarArtists.length > 0
+      ? await resolveSimilarArtistNames(
+          spotifyApi,
+          promptSpec.similarArtists,
+          requestedArtistIds,
+          expectedGenres,
+        )
+      : [];
+  const legacySimilarArtists =
+    promptSpec.includeSimilarArtists &&
+    resolvedArtists.length > 0 &&
+    aiNamedSimilarArtists.length === 0
+      ? await resolveSimilarArtists(spotifyApi, resolvedArtists, {
+          preferredGenres: promptSpec.genres,
+          limit: Math.max(2, promptSpec.artists.length * 2),
+        })
+      : [];
+  const similarArtists = [...aiNamedSimilarArtists, ...legacySimilarArtists];
+  const seededArtists = [...resolvedArtists, ...similarArtists];
+  const [artistCandidates, queryCandidates, recommendationCandidates, genreFallbackCandidates] = await Promise.all([
+    seededArtists.length > 0
+      ? fetchArtistTrackCandidates(spotifyApi, seededArtists, {
           market: config.spotifyDefaultMarket,
+          includeRecentTracks: promptSpec.preferRecentTracks,
         })
       : Promise.resolve([]),
     searchTrackCandidates(spotifyApi, queries, {
       market: config.spotifyDefaultMarket,
       limitPerQuery: Math.max(10, Math.ceil(promptSpec.targetTrackCount / 2)),
+      requestedArtists: resolvedArtists,
     }),
+    promptSpec.includeSimilarArtists && resolvedArtists.length > 0
+      ? fetchRecommendationTrackCandidates(spotifyApi, resolvedArtists, {
+          market: config.spotifyDefaultMarket,
+          preferredGenres: promptSpec.genres,
+          limit: Math.max(10, promptSpec.targetTrackCount),
+        })
+      : Promise.resolve([]),
+    promptSpec.includeSimilarArtists && resolvedArtists.length > 0
+      ? fetchGenreSimilarArtistCandidates(spotifyApi, resolvedArtists, {
+          market: config.spotifyDefaultMarket,
+          preferredGenres: promptSpec.genres,
+          limit: Math.max(6, promptSpec.targetTrackCount / 2),
+        })
+      : Promise.resolve([]),
   ]);
-  const candidates = [...artistCandidates, ...queryCandidates];
-  const selection = selectTracks(promptSpec, candidates);
+  const rawCandidates = [
+    ...artistCandidates,
+    ...recommendationCandidates,
+    ...genreFallbackCandidates,
+    ...queryCandidates,
+  ];
+  // For related-pool tracks we apply two safety filters up front so compilation accounts
+  // and collab tracks don't pollute the "similar artists" share later.
+  const candidates = rawCandidates.filter((candidate) => {
+    if (candidate.seedArtistKind !== "related") {
+      return true;
+    }
+
+    if (!relatedTrackHasRealArtist(candidate)) {
+      return false;
+    }
+
+    if (
+      promptSpec.excludeSimilarArtistCollabsWithRequested &&
+      candidate.artistIds.some((artistId) => requestedArtistIds.has(artistId))
+    ) {
+      return false;
+    }
+
+    return true;
+  });
+  const initialSelection = selectTracks(promptSpec, candidates);
+  const reviewedSelection = reviewAndRepairSelection(
+    promptSpec,
+    initialSelection,
+    candidates,
+    resolvedArtists,
+  );
+  // Apply the requested-vs-similar share AFTER review, otherwise reviewAndRepair's
+  // re-selection ignores the share composition and falls back to requested-heavy output.
+  const shareAdjustedTracks = composeSelectionWithSimilarArtistShare(
+    promptSpec,
+    candidates,
+    reviewedSelection.tracks,
+  );
+  const selection: typeof reviewedSelection = {
+    ...reviewedSelection,
+    tracks: shareAdjustedTracks,
+    totalDurationMs: totalDurationMs(shareAdjustedTracks),
+    diagnostics: {
+      ...reviewedSelection.diagnostics,
+      selectedTrackCount: shareAdjustedTracks.length,
+    },
+  };
 
   if (promptSpec.artists.length > 0 && resolvedArtists.length === 0) {
     throw new Error(

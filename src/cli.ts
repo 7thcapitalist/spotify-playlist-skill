@@ -19,7 +19,27 @@ Usage:
 
 function formatError(error: unknown): string {
   if (error instanceof Error) {
-    return error.message;
+    const maybeAny = error as unknown as {
+      statusCode?: number;
+      headers?: Record<string, string | undefined>;
+      body?: unknown;
+    };
+
+    const statusCode = maybeAny.statusCode;
+    const retryAfterHeader = maybeAny.headers?.["retry-after"];
+    const retryAfterSeconds = retryAfterHeader ? Number(retryAfterHeader) : undefined;
+
+    if (statusCode === 429 && retryAfterSeconds && Number.isFinite(retryAfterSeconds)) {
+      const retryAfterMinutes = Math.round((retryAfterSeconds / 60) * 10) / 10;
+      return `Spotify rate-limited this app (HTTP 429). Retry after ~${retryAfterMinutes} min (${retryAfterSeconds}s).`;
+    }
+
+    if (typeof maybeAny.body === "object" && maybeAny.body !== null) {
+      const bodyText = JSON.stringify(maybeAny.body, null, 2);
+      return `${error.message}\n${bodyText}`;
+    }
+
+    return error.message || String(error);
   }
 
   if (typeof error === "object" && error !== null) {

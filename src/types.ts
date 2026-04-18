@@ -13,11 +13,16 @@ export interface TrackCandidate {
   uri: string;
   name: string;
   artistNames: string[];
+  artistIds: string[];
   requestedArtist?: string;
+  requestedArtistId?: string;
+  seedArtistName?: string;
+  seedArtistKind?: "requested" | "related";
   albumName: string;
   durationMs: number;
   explicit: boolean;
   popularity: number;
+  releaseDate?: string;
   sourceQuery: string;
   searchRank: number;
   matchTerms: string[];
@@ -28,6 +33,8 @@ export interface ResolvedArtist {
   requestedName: string;
   spotifyArtistId: string;
   matchedName: string;
+  genres: string[];
+  isRequested: boolean;
 }
 
 export interface PlaylistSelectionDiagnostics {

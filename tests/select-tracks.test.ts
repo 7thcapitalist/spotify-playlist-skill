@@ -11,11 +11,16 @@ function makeCandidate(overrides: Partial<TrackCandidate>): TrackCandidate {
     uri: overrides.uri ?? `spotify:track:${Math.random()}`,
     name: overrides.name ?? "Fallback Song",
     artistNames: overrides.artistNames ?? ["Fallback Artist"],
+    artistIds: overrides.artistIds ?? [],
     requestedArtist: overrides.requestedArtist,
+    requestedArtistId: overrides.requestedArtistId,
+    seedArtistName: overrides.seedArtistName,
+    seedArtistKind: overrides.seedArtistKind,
     albumName: overrides.albumName ?? "Fallback Album",
     durationMs: overrides.durationMs ?? 180_000,
     explicit: overrides.explicit ?? false,
     popularity: overrides.popularity ?? 50,
+    releaseDate: overrides.releaseDate,
     sourceQuery: overrides.sourceQuery ?? "chill rap",
     searchRank: overrides.searchRank ?? 0,
     matchTerms: overrides.matchTerms ?? ["chill"],
@@ -29,11 +34,20 @@ const promptSpec: PromptSpec = {
   targetDurationMinutes: 12,
   allowExplicit: false,
   artists: [],
+  languages: [],
   genres: ["rap"],
   styles: ["chill"],
   activities: ["gym"],
   seedTerms: ["chill", "gym", "rap"],
   playlistNameHint: "Chill Gym Rap",
+  strictArtistMatch: false,
+  strictLanguageMatch: false,
+  includeOnlyRequestedArtists: false,
+  includeSimilarArtists: false,
+  requestedArtistTargetShare: undefined,
+  preferPopularTracks: false,
+  preferRecentTracks: false,
+  interpretationSource: "heuristic",
   isPrivate: true,
 };
 
@@ -49,7 +63,7 @@ describe("buildSearchQueries", () => {
 
 describe("clampSearchLimit", () => {
   it("caps large search limits to Spotify's supported maximum", () => {
-    expect(clampSearchLimit(99)).toBe(10);
+    expect(clampSearchLimit(99)).toBe(50);
   });
 
   it("uses the default when no limit is provided", () => {
@@ -124,6 +138,8 @@ describe("selectTracks", () => {
         uri: "spotify:track:alok-real",
         name: "Hear Me Now",
         artistNames: ["Alok", "Bruno Martini", "Zeeba"],
+        artistIds: ["artist:alok", "artist:bruno", "artist:zeeba"],
+        requestedArtistId: "artist:alok",
         matchTerms: ["alok"],
       }),
       makeCandidate({
@@ -190,5 +206,237 @@ describe("selectTracks", () => {
     expect(selection.tracks).toHaveLength(4);
     expect(selection.tracks.some((track) => track.requestedArtist === "Alok")).toBe(true);
     expect(selection.tracks.some((track) => track.requestedArtist === "Simone Mendes")).toBe(true);
+  });
+
+  it("allows related artists only when the prompt asks for similar artists", () => {
+    const similarArtistPromptSpec: PromptSpec = {
+      ...promptSpec,
+      targetTrackCount: 2,
+      artists: ["Joao Gomes"],
+      genres: ["forro"],
+      languages: ["brazilian portuguese"],
+      seedTerms: ["joao gomes", "forro", "brazilian portuguese"],
+      includeSimilarArtists: true,
+      requestedArtistTargetShare: 0.5,
+      preferPopularTracks: true,
+    };
+
+    const selection = selectTracks(similarArtistPromptSpec, [
+      makeCandidate({
+        id: "joao-1",
+        uri: "spotify:track:joao-1",
+        name: "Joao Hit",
+        artistNames: ["Joao Gomes"],
+        artistIds: ["artist:joao"],
+        requestedArtist: "Joao Gomes",
+        requestedArtistId: "artist:joao",
+        seedArtistName: "Joao Gomes",
+        seedArtistKind: "requested",
+        popularity: 95,
+        matchTerms: ["joao", "forro"],
+      }),
+      makeCandidate({
+        id: "related-1",
+        uri: "spotify:track:related-1",
+        name: "Similar Forro Hit",
+        artistNames: ["Tarcisio do Acordeon"],
+        seedArtistName: "Tarcisio do Acordeon",
+        seedArtistKind: "related",
+        popularity: 88,
+        matchTerms: ["forro"],
+      }),
+      makeCandidate({
+        id: "random-1",
+        uri: "spotify:track:random-1",
+        name: "Unrelated Song",
+        artistNames: ["Random Artist"],
+        popularity: 99,
+        matchTerms: ["forro"],
+      }),
+    ]);
+
+    expect(selection.tracks).toHaveLength(2);
+    expect(selection.tracks.some((track) => track.artistNames[0] === "Joao Gomes")).toBe(true);
+    expect(selection.tracks.some((track) => track.artistNames[0] === "Tarcisio do Acordeon")).toBe(true);
+    expect(selection.tracks.some((track) => track.artistNames[0] === "Random Artist")).toBe(false);
+  });
+
+  it("requires the primary artist to match when artist matching is strict", () => {
+    const strictArtistPromptSpec: PromptSpec = {
+      ...promptSpec,
+      artists: ["Joao Gomes"],
+      strictArtistMatch: true,
+      includeOnlyRequestedArtists: true,
+      seedTerms: ["joao gomes", "forro"],
+    };
+
+    const selection = selectTracks(strictArtistPromptSpec, [
+      makeCandidate({
+        id: "primary-match",
+        uri: "spotify:track:primary-match",
+        name: "Primary Match",
+        artistNames: ["Joao Gomes", "Guest Artist"],
+        artistIds: ["artist:joao", "artist:guest"],
+        requestedArtist: "Joao Gomes",
+        requestedArtistId: "artist:joao",
+        matchTerms: ["joao", "forro"],
+      }),
+      makeCandidate({
+        id: "feature-only",
+        uri: "spotify:track:feature-only",
+        name: "Feature Only",
+        artistNames: ["Another Artist", "Joao Gomes"],
+        artistIds: ["artist:another", "artist:joao"],
+        requestedArtist: "Joao Gomes",
+        requestedArtistId: "artist:joao",
+        matchTerms: ["joao", "forro"],
+      }),
+    ]);
+
+    expect(selection.tracks).toHaveLength(1);
+    expect(selection.tracks[0]?.uri).toBe("spotify:track:primary-match");
+  });
+
+  it("does not accept a different artist with a similar name", () => {
+    const nattanPromptSpec: PromptSpec = {
+      ...promptSpec,
+      targetTrackCount: 1,
+      artists: ["Nattan"],
+      includeSimilarArtists: true,
+      requestedArtistTargetShare: 0.5,
+      strictArtistMatch: false,
+      seedTerms: ["nattan", "forro"],
+    };
+
+    const selection = selectTracks(nattanPromptSpec, [
+      makeCandidate({
+        id: "real-nattan",
+        uri: "spotify:track:real-nattan",
+        name: "Amor na Praia",
+        artistNames: ["Nattan"],
+        artistIds: ["artist:nattan"],
+        requestedArtist: "Nattan",
+        requestedArtistId: "artist:nattan",
+        popularity: 90,
+        matchTerms: ["nattan", "forro"],
+      }),
+      makeCandidate({
+        id: "dj-nattan",
+        uri: "spotify:track:dj-nattan",
+        name: "Batida da Madrugada",
+        artistNames: ["DJ Nattan"],
+        artistIds: ["artist:dj-nattan"],
+        popularity: 99,
+        matchTerms: ["nattan", "forro"],
+      }),
+    ]);
+
+    expect(selection.tracks).toHaveLength(1);
+    expect(selection.tracks[0]?.uri).toBe("spotify:track:real-nattan");
+  });
+
+  it("filters generic candidates that do not look like the requested language", () => {
+    const portuguesePromptSpec: PromptSpec = {
+      ...promptSpec,
+      targetTrackCount: 2,
+      languages: ["brazilian portuguese"],
+      strictLanguageMatch: true,
+      seedTerms: ["forro", "brazilian portuguese"],
+      interpretationSource: "merged",
+    };
+
+    const selection = selectTracks(portuguesePromptSpec, [
+      makeCandidate({
+        id: "pt-song",
+        uri: "spotify:track:pt-song",
+        name: "Meu Amor",
+        artistNames: ["Banda Brasileira"],
+        albumName: "Coracao Valente",
+        matchTerms: ["forro"],
+      }),
+      makeCandidate({
+        id: "en-song",
+        uri: "spotify:track:en-song",
+        name: "Broken Heart Tonight",
+        artistNames: ["Global Pop Star"],
+        albumName: "Midnight Love",
+        matchTerms: ["forro"],
+      }),
+    ]);
+
+    expect(selection.tracks).toHaveLength(1);
+    expect(selection.tracks[0]?.uri).toBe("spotify:track:pt-song");
+  });
+
+  it("caps requested artist share when similar artists are allowed", () => {
+    const sharePromptSpec: PromptSpec = {
+      ...promptSpec,
+      targetTrackCount: 5,
+      artists: ["Joao Gomes"],
+      includeSimilarArtists: true,
+      requestedArtistTargetShare: 0.4,
+      seedTerms: ["joao gomes", "forro"],
+    };
+
+    const selection = selectTracks(sharePromptSpec, [
+      makeCandidate({
+        id: "joao-1",
+        uri: "spotify:track:joao-1",
+        name: "Joao Song One",
+        artistNames: ["Joao Gomes"],
+        artistIds: ["artist:joao"],
+        requestedArtist: "Joao Gomes",
+        requestedArtistId: "artist:joao",
+        popularity: 95,
+      }),
+      makeCandidate({
+        id: "joao-2",
+        uri: "spotify:track:joao-2",
+        name: "Joao Song Two",
+        artistNames: ["Joao Gomes"],
+        artistIds: ["artist:joao"],
+        requestedArtist: "Joao Gomes",
+        requestedArtistId: "artist:joao",
+        popularity: 94,
+      }),
+      makeCandidate({
+        id: "joao-3",
+        uri: "spotify:track:joao-3",
+        name: "Joao Song Three",
+        artistNames: ["Joao Gomes"],
+        artistIds: ["artist:joao"],
+        requestedArtist: "Joao Gomes",
+        requestedArtistId: "artist:joao",
+        popularity: 93,
+      }),
+      makeCandidate({
+        id: "related-1",
+        uri: "spotify:track:related-1",
+        name: "Related Song One",
+        artistNames: ["Tarcisio do Acordeon"],
+        seedArtistKind: "related",
+        popularity: 91,
+      }),
+      makeCandidate({
+        id: "related-2",
+        uri: "spotify:track:related-2",
+        name: "Related Song Two",
+        artistNames: ["Ze Vaqueiro"],
+        seedArtistKind: "related",
+        popularity: 90,
+      }),
+      makeCandidate({
+        id: "related-3",
+        uri: "spotify:track:related-3",
+        name: "Related Song Three",
+        artistNames: ["Vitor Fernandes"],
+        seedArtistKind: "related",
+        popularity: 89,
+      }),
+    ]);
+
+    expect(selection.tracks).toHaveLength(5);
+    expect(selection.tracks.filter((track) => track.requestedArtistId === "artist:joao")).toHaveLength(2);
+    expect(selection.tracks.filter((track) => track.seedArtistKind === "related").length).toBeGreaterThanOrEqual(3);
   });
 });

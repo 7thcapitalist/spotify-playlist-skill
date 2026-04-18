@@ -49,6 +49,21 @@ Artists included:
     ]);
   });
 
+  it("extracts singer lists, language, genre, and popularity/recency preferences", () => {
+    const spec = parsePrompt(
+      "Create a playlist featuring about 30 songs from the singers: Joao Gomes, Nathan and Nathanzinho Lima. It should have their top and new hits in Brazilian Portuguese forro.",
+    );
+
+    expect(spec.targetTrackCount).toBe(30);
+    expect(spec.artists).toEqual(["Joao Gomes", "Nathan", "Nathanzinho Lima"]);
+    expect(spec.languages).toEqual(expect.arrayContaining(["brazilian portuguese", "portuguese"]));
+    expect(spec.genres).toEqual(expect.arrayContaining(["forro"]));
+    expect(spec.strictArtistMatch).toBe(true);
+    expect(spec.strictLanguageMatch).toBe(true);
+    expect(spec.preferPopularTracks).toBe(true);
+    expect(spec.preferRecentTracks).toBe(true);
+  });
+
   it("extracts artists from freeform preference language", () => {
     const spec = parsePrompt(
       "Make a playlist of classic rock songs. 50 songs, I really like the Eagles, big fan of Pink Floyd and Led Zeppelin, Robert Plant. Just do their biggest hits.",
@@ -59,5 +74,20 @@ Artists included:
     expect(spec.artists).toEqual(
       expect.arrayContaining(["the Eagles", "Pink Floyd", "Led Zeppelin", "Robert Plant"]),
     );
+  });
+
+  it("detects strict artist-only and similar-artist intent separately", () => {
+    const strictSpec = parsePrompt(
+      "Make a 25-song playlist with only songs from Joao Gomes and Nathanzinho Lima.",
+    );
+    const similarSpec = parsePrompt(
+      "Create a forro playlist with singers such as Joao Gomes and Nathanzinho Lima and similar singers.",
+    );
+
+    expect(strictSpec.includeOnlyRequestedArtists).toBe(true);
+    expect(strictSpec.strictArtistMatch).toBe(true);
+    expect(strictSpec.includeSimilarArtists).toBe(false);
+    expect(similarSpec.includeSimilarArtists).toBe(true);
+    expect(similarSpec.strictArtistMatch).toBe(false);
   });
 });
