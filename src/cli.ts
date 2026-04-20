@@ -12,7 +12,7 @@ function printUsage(): void {
 
 Usage:
   npm run auth
-  npm run generate -- "Make me a 20-song chill Brazilian night drive playlist"
+  npm run generate -- "Make me a 50-song chill Brazilian night drive playlist"
   npm run smoke
 `);
 }

@@ -176,7 +176,10 @@ function mergePromptSpec(baseSpec: PromptSpec, aiSpec: AiPromptInterpretation): 
     activities,
     seedTerms: uniqueStrings([
       ...artists,
-      ...similarArtists,
+      // Intentionally exclude `similarArtists` from seedTerms. Those names already drive
+      // their own dedicated per-artist search in `fetchArtistTrackCandidates`; merging
+      // them into the mega-text-search query biases Spotify toward returning collabs
+      // between the primary and similar artists instead of solo tracks.
       ...languages,
       ...genres,
       ...styles,
@@ -249,10 +252,13 @@ async function requestAiInterpretation(
               "Honor these rules strictly:",
               "- If the user specifies a language, copy it into `languages` and set `strictLanguageMatch` to true.",
               "- If the user names artists, keep them in `artists`. Never invent artists here.",
-              "- Treat named artists as strict by default: set `strictArtistMatch` to true unless the user explicitly asks for similar artists.",
-              "- Set `includeSimilarArtists` to true whenever the user asks for 'similar artists', 'top artists like', 'other trap/rap/etc. artists', or expresses an open genre/scene intent around their named artists.",
+              "- Treat named artists as strict by default: set `strictArtistMatch` to true unless the user explicitly asks for similar artists OR wants a mixed playlist with other artists in the same genre/scene (see the similar-artist triggers below).",
+              "- Set `includeSimilarArtists` to true when the user wants OTHER artists besides the named ones, in the same style/scene/genre/era. Triggers include (non-exhaustive):",
+              "  English: similar artists, artists like X, in the same vein, same era/scene, other bands like, more like, broaden beyond, not only X.",
+              "  Portuguese: artistas parecidos, artistas similares, outros similares, outros artistas, mais artistas assim, no mesmo estilo/na mesma linha/no mesmo espírito, algo parecido, coisas parecidas, na mesma vibe, além deles, não só eles, junto com outros, sugere outros, quem mais toca parecido.",
+              "- The bundled `heuristicSpec` may have `includeSimilarArtists: false` because simple keyword rules miss Portuguese phrases like 'outros similares'. You MUST infer intent from the full user prompt and set `includeSimilarArtists` (and `strictArtistMatch: false`) when those phrases appear — do not copy a false negative from heuristicSpec.",
               "- When `includeSimilarArtists` is true, populate `similarArtists` with 8-15 concrete, real, popular artist names that fit the same genre/scene/market/era as the named `artists`. These MUST be different real artists, never the primary artists, and never generic labels like 'TikTok Hits'. For Brazilian trap around Matue and Veigh, examples could include Teto, WIU, Chefin, Kayblack, Orochi, Derek, L7NNON, Djonga, MC Ryan SP — pick whoever is currently popular in that scene.",
-              "- Set `requestedArtistTargetShare` between 0 and 1 to indicate how much of the playlist should come from the named `artists` vs. `similarArtists`. Default to 0.4 when the prompt says 'include similar artists', 0.3 when the user emphasises the scene over the names, 0.6 when they emphasise the names.",
+              "- Set `requestedArtistTargetShare` between 0 and 1 to indicate how much of the playlist should come from the named `artists` vs. `similarArtists`. Default to 0.4 when the prompt asks for similar/other artists, 0.3 when the user emphasises the scene over the names, 0.6 when they emphasise the names.",
               "- Set `excludeSimilarArtistCollabsWithRequested` to true when the user asks for songs from OTHER artists / without features of the named ones (e.g. 'songs only from the other artists without a feature with Matue or Veigh').",
               "- Infer genre, style, popularity-vs-recency intent, and approximate track count when clear.",
               "- Do not invent the primary `artists` themselves. `similarArtists` MUST be populated by you when `includeSimilarArtists` is true.",
@@ -263,6 +269,8 @@ async function requestAiInterpretation(
             content: JSON.stringify({
               prompt,
               heuristicSpec,
+              noteOnHeuristicSimilarFlag:
+                "heuristicSpec.includeSimilarArtists is keyword-based and often false for Brazilian Portuguese (e.g. 'queria outros similares'). Infer similar-artist intent from the raw prompt and override when appropriate.",
               desiredShape: {
                 playlistNameHint: "string",
                 targetTrackCount: "number",

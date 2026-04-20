@@ -3,6 +3,21 @@ import { describe, expect, it } from "vitest";
 import { parsePrompt } from "../src/domain/parse-prompt";
 
 describe("parsePrompt", () => {
+  it("defaults to 50 tracks when count and duration are omitted", () => {
+    const spec = parsePrompt("Create a chill Brazilian playlist for studying.");
+
+    expect(spec.targetTrackCount).toBe(50);
+  });
+
+  it("detects similar-artist intent from Brazilian Portuguese (outros similares)", () => {
+    const spec = parsePrompt(
+      "Crie uma playlist com MPB e rock. Gosto de Legião Urbana e Raul Seixas e queria outros similares.",
+    );
+
+    expect(spec.includeSimilarArtists).toBe(true);
+    expect(spec.strictArtistMatch).toBe(false);
+  });
+
   it("extracts track count, mood, nationality, and explicit filter", () => {
     const spec = parsePrompt("Make me a 20-song chill Brazilian night drive playlist.");
 

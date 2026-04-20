@@ -6,7 +6,7 @@ Generate Spotify playlists from natural-language prompts with a local TypeScript
 
 `spotify-playlist-skill` turns prompts like:
 
-- `Make me a 20-song chill Brazilian night drive playlist.`
+- `Make me a 50-song chill Brazilian night drive playlist.`
 - `Create a 45-minute gym playlist with rap and electronic music.`
 - `Build a study playlist with calm piano and no explicit songs.`
 - `Create a Spotify playlist called Pecuária 2026 with Matheus e Kauan, Simone Mendes, Fred e Fabrício, and Alok.`
@@ -126,7 +126,8 @@ The AI layer only interprets the prompt and proposes similar-artist names. Spoti
 
 - Use phrases like **"and similar artists"**, **"top artists in the X scene"**, or **"other rappers like …"** to opt into similar-artist expansion.
 - Use **"songs only from the other similar artists, no features with \<primary\>"** to exclude collabs from the similar-artist share.
-- Use **"50 songs from …"** / **"20-song playlist"** to pin the exact track count.
+- If you omit a count, the default is now **50 songs**.
+- Use **"50 songs from …"** / **"20-song playlist"** to pin a custom track count.
 - To disable the AI layer for a run and use only the built-in heuristic parser:
 
   ```powershell
@@ -144,7 +145,7 @@ This repo also includes a local skill at `.cursor/skills/spotify-playlist/SKILL.
 
 Once the repo is open in Cursor, you can ask in chat:
 
-- `Create me a 20-song chill Brazilian night drive playlist`
+- `Create me a 50-song chill Brazilian night drive playlist`
 - `Make a playlist of classic rock songs. 50 songs, I really like the Eagles, Pink Floyd, Led Zeppelin, and Robert Plant.`
 
 ## Project Structure

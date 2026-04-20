@@ -9,7 +9,7 @@ description: Generate Spotify playlists from natural-language prompts using the 
 
 Use this skill when a user wants a Spotify playlist created from a prompt such as:
 
-- `Make me a 20-song chill Brazilian night drive playlist`
+- `Make me a 50-song chill Brazilian night drive playlist`
 - `Create a 45-minute gym playlist with rap and electronic music`
 - `Build a study playlist with calm piano and no explicit songs`
 
@@ -38,5 +38,6 @@ npm run generate -- "<user prompt>"
 ## Notes
 
 - The tool creates private playlists by default.
+- If no count is requested, generation defaults to 50 songs.
 - The orchestration is local and custom; Spotify auth/search/playlist calls go through `spotify-web-api-node`.
 - If the prompt is too narrow and no tracks are found, suggest broadening the genre or mood terms.

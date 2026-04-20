@@ -62,7 +62,7 @@ function buildPlaylistDescription(spec: PromptSpec): string {
   return description.slice(0, 300);
 }
 
-function composeSelectionWithSimilarArtistShare(
+export function composeSelectionWithSimilarArtistShare(
   spec: PromptSpec,
   candidates: PlaylistGenerationResult["selectedTracks"],
   alreadySelected: PlaylistGenerationResult["selectedTracks"],
@@ -114,7 +114,49 @@ function composeSelectionWithSimilarArtistShare(
   ).tracks;
 
   // Dedup across the two sub-pools to collapse any track that snuck into both.
-  return dedupeCandidates([...requestedSelection, ...relatedSelection]);
+  const combinedSelection = dedupeCandidates([...requestedSelection, ...relatedSelection]);
+
+  if (combinedSelection.length >= spec.targetTrackCount) {
+    return combinedSelection.slice(0, spec.targetTrackCount);
+  }
+
+  const usedUris = new Set(combinedSelection.map((candidate) => candidate.uri));
+
+  // If one of the sub-pools fell short of its quota, top it up from the SAME sub-pool.
+  // We explicitly do NOT fall back to the general `candidates` pool because it contains
+  // `queryCandidates` without a seedArtistKind, which are dominated by collabs/features
+  // between primary + similar artists from the big text-search query. Pulling from that
+  // pool would effectively turn the "similar artist" share into a features-only share.
+  const topUpFrom = (pool: PlaylistGenerationResult["selectedTracks"]): void => {
+    for (const candidate of pool) {
+      if (combinedSelection.length >= spec.targetTrackCount) {
+        return;
+      }
+
+      if (usedUris.has(candidate.uri)) {
+        continue;
+      }
+
+      combinedSelection.push(candidate);
+      usedUris.add(candidate.uri);
+    }
+  };
+
+  const requestedShortage = Math.max(0, requestedTargetCount - requestedSelection.length);
+  const relatedShortage = Math.max(0, relatedTargetCount - relatedSelection.length);
+
+  // Top up in order of where the gap was. This preserves the share intent: if related
+  // was short we try to close that gap with more related candidates before stealing
+  // requested slots, and vice versa.
+  if (relatedShortage >= requestedShortage) {
+    topUpFrom(relatedCandidates);
+    topUpFrom(requestedCandidates);
+  } else {
+    topUpFrom(requestedCandidates);
+    topUpFrom(relatedCandidates);
+  }
+
+  return combinedSelection.slice(0, spec.targetTrackCount);
 }
 
 /** Cap on how many AI-proposed similar artists we actually query Spotify for. */
@@ -149,6 +191,13 @@ function artistMatchesExpectedScene(
   }
 
   const normalized = genres.map((value) => normalizeText(value)).filter(Boolean);
+
+  // Spotify started returning empty genres for many artists in 2024. If we have no genre
+  // signal to compare against, trust the AI (or caller) that proposed the name rather
+  // than dropping a perfectly valid similar artist.
+  if (normalized.length === 0) {
+    return true;
+  }
 
   return normalized.some((genre) => {
     for (const expectedGenre of expected) {

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { composeSelectionWithSimilarArtistShare } from "../src/application/generate-playlist";
 import { buildSearchQueries, selectTracks } from "../src/domain/select-tracks";
 import { clampSearchLimit } from "../src/spotify/search";
 import type { TrackCandidate } from "../src/types";
@@ -438,5 +439,118 @@ describe("selectTracks", () => {
     expect(selection.tracks).toHaveLength(5);
     expect(selection.tracks.filter((track) => track.requestedArtistId === "artist:joao")).toHaveLength(2);
     expect(selection.tracks.filter((track) => track.seedArtistKind === "related").length).toBeGreaterThanOrEqual(3);
+  });
+});
+
+describe("composeSelectionWithSimilarArtistShare", () => {
+  const sharePromptSpec: PromptSpec = {
+    ...promptSpec,
+    targetTrackCount: 10,
+    artists: ["Artist A"],
+    includeSimilarArtists: true,
+    requestedArtistTargetShare: 0.4,
+    similarArtists: [],
+    excludeSimilarArtistCollabsWithRequested: true,
+    languages: [],
+    strictLanguageMatch: false,
+    genres: [],
+    styles: [],
+    activities: [],
+    seedTerms: ["artist a"],
+    playlistNameHint: "Artist A Mix",
+    strictArtistMatch: false,
+    includeOnlyRequestedArtists: false,
+  };
+
+  it("keeps the requested vs related share when both sub-pools have enough candidates", () => {
+    const requestedCandidates = Array.from({ length: 10 }).map((_, i) =>
+      makeCandidate({
+        id: `req-${i}`,
+        uri: `spotify:track:req-${i}`,
+        name: `Artist A song ${i}`,
+        artistNames: ["Artist A"],
+        artistIds: ["artist:a"],
+        requestedArtist: "Artist A",
+        requestedArtistId: "artist:a",
+        seedArtistKind: "requested",
+        popularity: 95 - i,
+      }),
+    );
+    const relatedCandidates = Array.from({ length: 12 }).map((_, i) =>
+      makeCandidate({
+        id: `rel-${i}`,
+        uri: `spotify:track:rel-${i}`,
+        name: `Similar ${i % 3} song ${i}`,
+        artistNames: [`Similar${i % 3}`],
+        artistIds: [`artist:sim${i % 3}`],
+        seedArtistKind: "related",
+        popularity: 80 - i,
+      }),
+    );
+
+    const result = composeSelectionWithSimilarArtistShare(
+      sharePromptSpec,
+      [...requestedCandidates, ...relatedCandidates],
+      [],
+    );
+
+    expect(result).toHaveLength(10);
+
+    const relatedCount = result.filter((track) => track.seedArtistKind === "related").length;
+
+    expect(relatedCount).toBeGreaterThanOrEqual(6);
+  });
+
+  it("does not fill the related quota with text-search candidates that lack seedArtistKind", () => {
+    const primary = Array.from({ length: 10 }).map((_, i) =>
+      makeCandidate({
+        id: `req-${i}`,
+        uri: `spotify:track:req-${i}`,
+        name: `Artist A song ${i}`,
+        artistNames: ["Artist A"],
+        artistIds: ["artist:a"],
+        requestedArtist: "Artist A",
+        requestedArtistId: "artist:a",
+        seedArtistKind: "requested",
+        popularity: 95 - i,
+      }),
+    );
+    const leakyTextSearchCollabs = Array.from({ length: 8 }).map((_, i) =>
+      makeCandidate({
+        id: `leak-${i}`,
+        uri: `spotify:track:leak-${i}`,
+        name: `Artist A feat Artist X ${i}`,
+        artistNames: ["Artist A", "Artist X"],
+        artistIds: ["artist:a", "artist:x"],
+        requestedArtist: "Artist A",
+        requestedArtistId: "artist:a",
+        popularity: 50 - i,
+      }),
+    );
+    const related = Array.from({ length: 12 }).map((_, i) =>
+      makeCandidate({
+        id: `rel-${i}`,
+        uri: `spotify:track:rel-${i}`,
+        name: `Similar ${i % 3} song ${i}`,
+        artistNames: [`Similar${i % 3}`],
+        artistIds: [`artist:sim${i % 3}`],
+        seedArtistKind: "related",
+        popularity: 80 - i,
+      }),
+    );
+
+    const result = composeSelectionWithSimilarArtistShare(
+      sharePromptSpec,
+      [...primary, ...leakyTextSearchCollabs, ...related],
+      [],
+    );
+
+    expect(result).toHaveLength(10);
+
+    const relatedCount = result.filter((track) => track.seedArtistKind === "related").length;
+    const leakyCount = result.filter((track) => track.id.startsWith("leak-")).length;
+
+    expect(relatedCount).toBeGreaterThanOrEqual(6);
+    expect(leakyCount).toBe(0);
   });
 });

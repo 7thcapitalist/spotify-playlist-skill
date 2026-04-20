@@ -264,7 +264,15 @@ export function parsePrompt(prompt: string): PromptSpec {
     /\b(?:similar artists?|similar singers?|artistas parecidos?|cantores parecidos?)\b/i.test(
       normalizedPrompt,
     ) ||
-    /\b(?:artists?|singers?|cantores?)\s+(?:such as|like)\b/i.test(normalizedPrompt);
+    /\b(?:artists?|singers?|cantores?)\s+(?:such as|like)\b/i.test(normalizedPrompt) ||
+    /\boutros?\s+similares?\b/i.test(normalizedPrompt) ||
+    /\b(?:mais\s+)?artistas?\s+similares?\b/i.test(normalizedPrompt) ||
+    /\b(?:no|na)\s+mesm[oa]\s+(?:estilo|vibe|linha|espirito|espírito)\b/i.test(normalizedPrompt) ||
+    /\balgo\s+parecido\b/i.test(normalizedPrompt) ||
+    /\bcoisas?\s+parecidas?\b/i.test(normalizedPrompt) ||
+    /\bjunto\s+com\s+outros\b/i.test(normalizedPrompt) ||
+    /\bnao\s+so\s+(?:eles|elas)\b/i.test(normalizedPrompt) ||
+    /\bnão\s+só\s+(?:eles|elas)\b/i.test(normalizedPrompt);
   const preferPopularTracks =
     /\b(?:top hits?|biggest hits?|greatest hits?|most popular|popular songs?|maiores sucessos|sucessos)\b/i.test(
       normalizedPrompt,
