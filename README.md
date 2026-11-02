@@ -2,6 +2,10 @@
 
 Generate Spotify playlists from natural-language prompts with a local TypeScript CLI and a repo-local Cursor/OpenClaw skill.
 
+**Status:** working personal tool (April 2026), not a hosted service. You bring your own Spotify developer app. Tests cover the parsing and track-selection logic (`npm run check`).
+
+**Why:** Spotify's own playlist tools don't take a prompt like "50 songs from these four artists plus similar ones, no collabs." This does.
+
 ## What It Does
 
 `spotify-playlist-skill` turns prompts like:
